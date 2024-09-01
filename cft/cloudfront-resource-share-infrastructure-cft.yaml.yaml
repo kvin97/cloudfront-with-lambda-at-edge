@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  ApplicationName:
+    Description: Name of the application
+    Type: String
+    Default: cloudfront-resource-share-infrastructure
+  LambdaCodeS3Key:
+    Description: S3 Object key for lambda@edge src code
+    Type: String
+    Default: src_code/lambda-at-edge-src-code.zip
+  AcceptableMinFileSize:
+    Description: Min acceptable image file size
+    Type: Number
+    Default: "3.5"
+  AcceptableMinFileSizeChange:
+    Description: Min acceptable image file size percentage change
+    Type: Number
+    Default: "2"
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub lambda origin data modifier role for ${ApplicationName}
+      RoleName: !Sub "cloudfront-resource-share-lambda-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - edgelambda.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "cloudfront-resource-share-lambda-policy-${AWS::Region}"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+      Tags:
+        - Key: ApplicationName
+          Value: !Ref ApplicationName
+
+  LambdaOriginDataModifier:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt LambdaRole.Arn
+      Environment:
+        Variables:
+          MIN_SIZE: !Ref AcceptableMinFileSize
+          MIN_FILE_CHANGE_PERCENTAGE: !Ref AcceptableMinFileSizeChange
+      Code:
+        S3Bucket: !Ref S3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+      Description: Lambda@Edge for resource share cloudfront for origin data modification
+      Tags:
+        - Key: ApplicationName
+          Value: !Ref ApplicationName
+
+  LambdaOriginDataModifierVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref LambdaOriginDataModifier
+      Description: Resource share cloudfront lambda for origin data modification
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - "s3:GetObject"
+              - "s3:PutObject"
+              - "s3:DeleteObject"
+              - "s3:PutObjectAcl"
+              - "s3:PutObjectTagging"
+            Effect: Allow
+            Resource: !Join ["", [!GetAtt S3Bucket.Arn, "/*"]]
+            Principal:
+              AWS:
+                !Join [
+                  "",
+                  [
+                    "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ",
+                    !Ref CloudFrontOriginAccessIdentity
+                  ]
+                ]
+
+  S3Bucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Sub "cloudfront-resource-share-s3-bucket-${AWS::Region}"
+      VersioningConfiguration:
+        Status: Enabled
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+              - HEAD
+            AllowedOrigins:
+              - "*"
+      Tags:
+        - Key: ApplicationName
+          Value: !Ref ApplicationName
+
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: Origin access identity for resource share cloudfront
+
+  CloudFrontResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Comment: "response header policy for resource share cloudfront"
+        CorsConfig:
+          AccessControlAllowCredentials: false
+          AccessControlAllowHeaders:
+            Items:
+              - "*"
+          AccessControlAllowMethods:
+            Items:
+              - ALL
+          AccessControlAllowOrigins:
+            Items:
+              - "*"
+          OriginOverride: false
+        Name: !Sub "cloudfront-resource-share-response-header-policy-${AWS::Region}"
+
+  CloudfrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: distribution for resource share cloudfront
+        DefaultRootObject: index.html
+        IPV6Enabled: true
+        Origins:
+          - DomainName: !GetAtt S3Bucket.DomainName
+            Id: !Ref S3Bucket
+            S3OriginConfig:
+              OriginAccessIdentity:
+                !Join [
+                  "",
+                  [
+                    "origin-access-identity/cloudfront/",
+                    !Ref CloudFrontOriginAccessIdentity
+                  ]
+                ]
+        Enabled: true
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+            - PUT
+            - PATCH
+            - POST
+            - DELETE
+          TargetOriginId: !Ref S3Bucket
+          ViewerProtocolPolicy: https-only
+          ForwardedValues:
+            QueryString: true
+            Cookies:
+              Forward: none
+          ResponseHeadersPolicyId: !Ref CloudFrontResponseHeadersPolicy
+          LambdaFunctionAssociations:
+            - EventType: origin-request
+              IncludeBody: true
+              LambdaFunctionARN: !Ref LambdaOriginDataModifierVersion
+      Tags:
+        - Key: ApplicationName
+          Value: !Ref ApplicationName
+
+Outputs:
+  CloudfrontDistribution:
+    Description: Cloudfront Distribution
+    Value: !Ref CloudfrontDistribution
+  CloudFrontResponseHeadersPolicy:
+    Description: Response Headers Policy for Cloudfront Distribution
+    Value: !Ref CloudFrontResponseHeadersPolicy
+  CloudFrontOriginAccessIdentity:
+    Description: Cloudfront Origin Access Identity (OAI)
+    Value: !Ref CloudFrontOriginAccessIdentity
+  S3Bucket:
+    Description: Cloudfront Origin S3 Bucket
+    Value: !Ref S3Bucket
+  S3BucketPolicy:
+    Description: S3 Bucket Policy
+    Value: !Ref S3BucketPolicy
+  LambdaOriginDataModifier:
+    Description: Lambda To Modify Origin Data
+    Value: !Ref LambdaOriginDataModifier
+  LambdaRole:
+    Description: Lambda Role
+    Value: !Ref LambdaRole
