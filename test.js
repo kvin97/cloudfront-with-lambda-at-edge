@@ -1,15 +1,18 @@
 import { handler } from "./index.js";
 
-const testRes = handler({
-  Records: [
-    {
-      cf: {
-        request: {
-          method: "GET"
+const testRes = async () => {
+  await handler({
+    Records: [
+      {
+        cf: {
+          request: {
+            method: "PUT",
+            uri: "/original/image-123456.jpeg"
+          }
         }
       }
-    }
-  ]
-});
+    ]
+  });
+};
 
-console.log("Test: ", testRes);
+testRes();

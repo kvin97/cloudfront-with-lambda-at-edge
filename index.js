@@ -1,18 +1,27 @@
+import { getObject, updateObject } from "./s3Operations.js";
 import { transformImage } from "./transformImage.js";
+
+const s3Bucket = "your-s3-bucket";
 
 export const handler = async (event) => {
   const request = event.Records[0].cf.request;
+  const response = event.Records[0].cf.response;
 
   if (request.method === "PUT" || request.method === "POST") {
-    const requestBody = request.body.data;
+    const objectKey = request.uri.slice(1);
 
-    const inputBufferContent = Buffer.from(requestBody, "base64");
+    console.log(
+      `Process Image Optimization for Request Method: ${request.method}  of Image Object Key: ${objectKey}`
+    );
 
-    const transformedImageBuffer = await transformImage(inputBufferContent);
+    const originalImageBuffer = await getObject(s3Bucket, objectKey);
 
-    request.body.action = "replace";
-    request.body.data = transformedImageBuffer.toString("base64");
+    const transformedImageBuffer = await transformImage(originalImageBuffer);
+
+    const updatePathUri = objectKey.replace("original/", "optimized/");
+
+    await updateObject(s3Bucket, updatePathUri, transformedImageBuffer);
   }
 
-  return request;
+  return response;
 };

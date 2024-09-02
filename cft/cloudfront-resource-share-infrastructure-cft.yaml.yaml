@@ -9,14 +9,6 @@ Parameters:
     Description: S3 Object key for lambda@edge src code
     Type: String
     Default: src_code/lambda-at-edge-src-code.zip
-  AcceptableMinFileSize:
-    Description: Min acceptable image file size
-    Type: Number
-    Default: "3.5"
-  AcceptableMinFileSizeChange:
-    Description: Min acceptable image file size percentage change
-    Type: Number
-    Default: "2"
 
 Resources:
   LambdaRole:
@@ -45,6 +37,12 @@ Resources:
                   - "logs:CreateLogStream"
                   - "logs:PutLogEvents"
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:ListBucket"
+                Resource: "*"
       Tags:
         - Key: ApplicationName
           Value: !Ref ApplicationName
@@ -55,11 +53,8 @@ Resources:
       Runtime: nodejs20.x
       Handler: index.handler
       Timeout: 30
+      MemorySize: 1024
       Role: !GetAtt LambdaRole.Arn
-      Environment:
-        Variables:
-          MIN_SIZE: !Ref AcceptableMinFileSize
-          MIN_FILE_CHANGE_PERCENTAGE: !Ref AcceptableMinFileSizeChange
       Code:
         S3Bucket: !Ref S3Bucket
         S3Key: !Ref LambdaCodeS3Key
@@ -183,9 +178,23 @@ Resources:
               Forward: none
           ResponseHeadersPolicyId: !Ref CloudFrontResponseHeadersPolicy
           LambdaFunctionAssociations:
-            - EventType: origin-request
-              IncludeBody: true
+            - EventType: origin-response
               LambdaFunctionARN: !Ref LambdaOriginDataModifierVersion
+        CacheBehaviors:
+          - AllowedMethods:
+              - GET
+              - HEAD
+            CachedMethods:
+              - GET
+              - HEAD
+            TargetOriginId: !Ref S3Bucket
+            ForwardedValues:
+              QueryString: true
+              Cookies:
+                Forward: none
+            ResponseHeadersPolicyId: !Ref CloudFrontResponseHeadersPolicy
+            PathPattern: /optimized/*
+            ViewerProtocolPolicy: https-only
       Tags:
         - Key: ApplicationName
           Value: !Ref ApplicationName
