@@ -8,46 +8,47 @@ import sharp from "sharp";
   Then iteratively reduce the file size till change in file size becomes less than MIN_FILE_CHANGE_PERCENTAGE
 */
 
-const MIN_SIZE = 3.5; // minimum file size acceptable
+const MIN_SIZE = 1; // minimum file size acceptable
 const MIN_FILE_CHANGE_PERCENTAGE = 5; // if image file size percentage change is less than this then break the loop and return the buffer content
 
 export const transformImage = async (buffer) => {
   let inputBuffer = buffer;
   let outputBuffer = buffer;
 
-  let metadata;
+  let metadata = await sharp(inputBuffer).metadata();
+
   let change = MIN_FILE_CHANGE_PERCENTAGE;
-  let prevSize;
-  let size = MIN_SIZE;
+  let size = metadata.size / (1024 * 1024);
+  let prevSize = size;
 
   /* 
     iterate until image is resized to less than MIN_SIZE 
     or change of file size to less than MIN_FILE_CHANGE_PERCENTAGE
   */
   while (size >= MIN_SIZE && change >= MIN_FILE_CHANGE_PERCENTAGE) {
-    metadata = await sharp(inputBuffer).metadata();
-    size = metadata.size / (1024 * 1024);
-
-    if (prevSize) change = ((prevSize - size) * 100) / prevSize;
-
     if (metadata.format === "jpeg") {
-      outputBuffer = sharp(inputBuffer)
+      outputBuffer = await sharp(inputBuffer)
         .jpeg({
           quality: 80,
           mozjpeg: true
         })
         .toBuffer();
     } else if (metadata.format === "png") {
-      outputBuffer = sharp(inputBuffer)
+      outputBuffer = await sharp(inputBuffer)
         .png({
           quality: 80
         })
         .toBuffer();
     }
 
+    metadata = await sharp(inputBuffer).metadata();
+
+    size = metadata.size / (1024 * 1024);
+    if (prevSize) change = ((prevSize - size) * 100) / prevSize;
+
     prevSize = size;
 
-    inputBuffer = await outputBuffer;
+    inputBuffer = outputBuffer;
   }
 
   return outputBuffer;
