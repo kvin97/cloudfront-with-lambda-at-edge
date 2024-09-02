@@ -42,6 +42,9 @@ Resources:
                   - "s3:GetObject"
                   - "s3:PutObject"
                   - "s3:ListBucket"
+                  - "s3:GetObjectAttributes"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetObjectVersionAttributes"
                 Resource: "*"
       Tags:
         - Key: ApplicationName
@@ -56,8 +59,68 @@ Resources:
       MemorySize: 1024
       Role: !GetAtt LambdaRole.Arn
       Code:
-        S3Bucket: !Ref S3Bucket
-        S3Key: !Ref LambdaCodeS3Key
+        ZipFile: |
+          const awsSdkS3 = require("@aws-sdk/client-s3");
+
+          const { S3Client, GetObjectAttributesCommand } = awsSdkS3;
+
+          const s3Client = new S3Client({region: 'us-east-1'});
+
+          const s3Bucket = "your-s3-bucket";
+          const maxObjectSize = 5;
+
+          const getObjectMetaData = async (bucketName, objectKey) => {
+            const input = {
+              Bucket: bucketName,
+              Key: objectKey,
+              ObjectAttributes: ["ObjectSize"]
+            };
+
+            const command = new GetObjectAttributesCommand(input);
+            const response = await s3Client.send(command);
+
+            return response;
+          };
+
+          exports.handler = async (event) => {
+            const request = event.Records[0].cf.request;
+            const method = request.method;
+            const objectKey = request.uri.slice(1);
+            
+            if (method === "GET") {
+              try {
+                const objectMetaData = await getObjectMetaData(s3Bucket, objectKey);
+                const objectSizeMb = (objectMetaData.ObjectSize / (1024 * 1024)).toFixed(
+                  2
+                );
+                
+                if (objectSizeMb > maxObjectSize) {
+                  const response = {
+                    status: "400",
+                    statusDescription:
+                      "Bad Request - Uploaded Content is Too Large ! Please contact administration to resolve this issue.",
+                              headers: {
+                      'cache-control': [{
+                          key: 'Cache-Control',
+                          value: 'max-age=100'
+                      }],
+                      'content-type': [{
+                          key: 'Content-Type',
+                          value: 'text/html'
+                      }]
+                  },
+                  body: "Content Upload Error - Uploaded Content is Too Large ! Please contact administration to resolve this issue."
+                  };
+
+                  return response;
+                }
+              } catch (error) {
+                console.error(`Error while fetching object: ${objectKey}: `, error);
+              }
+            }
+
+            return request;
+          };
       Description: Lambda@Edge for resource share cloudfront for origin data modification
       Tags:
         - Key: ApplicationName
@@ -178,23 +241,8 @@ Resources:
               Forward: none
           ResponseHeadersPolicyId: !Ref CloudFrontResponseHeadersPolicy
           LambdaFunctionAssociations:
-            - EventType: origin-response
+            - EventType: origin-request
               LambdaFunctionARN: !Ref LambdaOriginDataModifierVersion
-        CacheBehaviors:
-          - AllowedMethods:
-              - GET
-              - HEAD
-            CachedMethods:
-              - GET
-              - HEAD
-            TargetOriginId: !Ref S3Bucket
-            ForwardedValues:
-              QueryString: true
-              Cookies:
-                Forward: none
-            ResponseHeadersPolicyId: !Ref CloudFrontResponseHeadersPolicy
-            PathPattern: /optimized/*
-            ViewerProtocolPolicy: https-only
       Tags:
         - Key: ApplicationName
           Value: !Ref ApplicationName
