@@ -8,8 +8,8 @@ import sharp from "sharp";
   Then iteratively reduce the file size till change in file size becomes less than MIN_FILE_CHANGE_PERCENTAGE
 */
 
-const MIN_SIZE = process.env.MIN_SIZE; // minimum file size acceptable
-const MIN_FILE_CHANGE_PERCENTAGE = process.env.MIN_FILE_CHANGE_PERCENTAGE; // if image file size percentage change is less than this then break the loop and return the buffer content
+const MIN_SIZE = 3.5; // minimum file size acceptable
+const MIN_FILE_CHANGE_PERCENTAGE = 5; // if image file size percentage change is less than this then break the loop and return the buffer content
 
 export const transformImage = async (buffer) => {
   let inputBuffer = buffer;

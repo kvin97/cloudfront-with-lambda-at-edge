@@ -9,14 +9,6 @@ Parameters:
     Description: S3 Object key for lambda@edge src code
     Type: String
     Default: src_code/lambda-at-edge-src-code.zip
-  AcceptableMinFileSize:
-    Description: Min acceptable image file size
-    Type: Number
-    Default: "3.5"
-  AcceptableMinFileSizeChange:
-    Description: Min acceptable image file size percentage change
-    Type: Number
-    Default: "2"
 
 Resources:
   LambdaRole:
@@ -56,10 +48,6 @@ Resources:
       Handler: index.handler
       Timeout: 30
       Role: !GetAtt LambdaRole.Arn
-      Environment:
-        Variables:
-          MIN_SIZE: !Ref AcceptableMinFileSize
-          MIN_FILE_CHANGE_PERCENTAGE: !Ref AcceptableMinFileSizeChange
       Code:
         S3Bucket: !Ref S3Bucket
         S3Key: !Ref LambdaCodeS3Key
